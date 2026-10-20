@@ -30,8 +30,11 @@ Available as both a **powerful CLI interactive tool** and a **modern, responsive
 ## 📦 Installation & Setup
 
 ### Prerequisites
-- Python 3.8 or newer.
-- *(Optional for CLI playback)* `mpv`, `vlc`, or `ffmpeg` (`ffplay`).
+- Python 3.8 or newer (Linux, macOS, Windows).
+- *(Optional for CLI playback)* `ffplay` (via `ffmpeg`), `mpv`, or `vlc`:
+  - **macOS:** `brew install ffmpeg mpv` or install VLC via `brew install --cask vlc`.
+  - **Windows:** `winget install Gyan.FFmpeg` or `winget install VideoLAN.VLC`.
+  - **Linux:** `sudo apt install ffmpeg vlc` (or `mpv`).
 - *(Optional)* `cloudflare-warp` if your ISP blocks upstream public directories or torrent trackers.
 
 ### 1. Clone the Repository
@@ -40,7 +43,10 @@ git clone https://github.com/sjodi442/music-search.git
 cd music-search
 ```
 
-That's it! There are **no pip requirements** to install.
+That's it! There are **no pip requirements** to install. Works out-of-the-box on:
+- 🐧 **Linux** (`python3`)
+- 🍏 **macOS** (`python3`)
+- 🪟 **Windows** (`python` in PowerShell or Command Prompt)
 
 ---
 

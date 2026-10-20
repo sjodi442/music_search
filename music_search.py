@@ -50,6 +50,61 @@ import urllib.parse
 import urllib.request
 from http.cookiejar import CookieJar, Cookie
 
+# ── Cross-Platform Setup (Linux, macOS, Windows) ──────────────────────────────
+if sys.platform.startswith("win"):
+    # Aktifkan VT100 / ANSI escape code di Windows Console
+    os.system("")
+    # Reconfigure UTF-8 encoding untuk console Windows
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    if hasattr(sys.stderr, "reconfigure"):
+        try:
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+elif sys.platform == "darwin":
+    # Pastikan binary Homebrew (Apple Silicon & Intel) tersedia di PATH
+    for brew_dir in ["/opt/homebrew/bin", "/usr/local/bin"]:
+        if os.path.exists(brew_dir) and brew_dir not in os.environ.get("PATH", ""):
+            os.environ["PATH"] = f"{brew_dir}:{os.environ.get('PATH', '')}"
+
+def open_system_target(target):
+    """Buka URL, file, folder, atau magnet link di aplikasi default (Linux, macOS, Windows)."""
+    if sys.platform.startswith("win"):
+        try:
+            os.startfile(target)
+            return True
+        except Exception:
+            try:
+                subprocess.Popen(["cmd", "/c", "start", "", target], shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except Exception:
+                pass
+    elif sys.platform == "darwin":
+        try:
+            subprocess.Popen(["open", target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except Exception:
+            pass
+    else:
+        xdg = shutil.which("xdg-open")
+        if xdg:
+            try:
+                subprocess.Popen([xdg, target], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                return True
+            except Exception:
+                pass
+    if target.startswith("http://") or target.startswith("https://"):
+        try:
+            import webbrowser
+            return webbrowser.open(target)
+        except Exception:
+            pass
+    return False
+
 # ── DNS-over-HTTPS (DoH) Resolver ─────────────────────────────────────────────
 def doh_resolve(host: str):
     """Resolve hostname via Cloudflare/Google DoH untuk bypass sensor DNS/ISP."""
@@ -99,10 +154,10 @@ SSL_CTX     = ssl._create_unverified_context()
 
 def ensure_warp_service() -> None:
     """Otomatis sambungkan Cloudflare WARP client jika belum tersambung tanpa meminta root/sudo."""
-    warp_cli = shutil.which("warp-cli")
-    if not warp_cli:
-        return
     try:
+        warp_cli = shutil.which("warp-cli")
+        if not warp_cli:
+            return
         res = subprocess.run([warp_cli, "--accept-tos", "status"], capture_output=True, text=True, timeout=2)
         if "Connected" in res.stdout:
             return
@@ -170,14 +225,9 @@ def _make_magnet(infohash, name):
 
 ELSCI_BASE  = "https://server.elsci.one"
 ELSCI_MUSIC = f"{ELSCI_BASE}/Music/"
-CACHE_DIR   = os.path.expanduser("~/.cache/music_search")
+CACHE_DIR   = os.environ.get("MUSIC_SEARCH_CACHE_DIR") or os.path.expanduser("~/.cache/music_search")
 CACHE_FILE  = os.path.join(CACHE_DIR, "elsci_index.json")
 COOKIE_FILE = os.path.join(CACHE_DIR, "cookie.json")
-
-# Pastikan path tools lokal (seperti npx/node) masuk ke PATH environment
-_HERMES_NODE = os.path.expanduser("~/.hermes/tools/node-26.7.0-linux-x64/bin")
-if os.path.exists(_HERMES_NODE) and _HERMES_NODE not in os.environ.get("PATH", ""):
-    os.environ["PATH"] = f"{_HERMES_NODE}:{os.environ.get('PATH', '')}"
 
 def _load_cached_cookie():
     """Ambil cookie Anubis dari disk jika masih valid (TTL: 2 jam)."""
@@ -691,16 +741,9 @@ def print_results(all_results, as_json=False):
 # ── Interactive Mode & Media Actions ──────────────────────────────────────────
 
 def open_url(url):
-    """Buka URL di Chrome atau browser default."""
-    chrome = shutil.which("google-chrome")
-    if chrome:
-        subprocess.Popen([chrome, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return "Chrome"
-    xdg = shutil.which("xdg-open")
-    if xdg:
-        subprocess.Popen([xdg, url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return "Browser Default"
-    return None
+    """Buka URL di browser default sistem (Linux, macOS, Windows)."""
+    ok = open_system_target(url)
+    return "Browser Default" if ok else None
 
 ELSCI_COOKIES = ""
 
@@ -841,9 +884,17 @@ def _get_archive_tracks(archive_url):
         return []
 
 def sanitize_filename(name):
-    """Bersihkan string agar aman sebagai nama file atau folder di sistem operasi."""
-    clean = re.sub(r'[\\/*?:"<>|]', "_", name).strip()
-    return clean[:200] if len(clean) > 200 else clean
+    """Bersihkan string agar aman sebagai nama file atau folder di Linux, macOS, dan Windows."""
+    clean = re.sub(r'[\\/*?:"<>|\x00-\x1f]', "_", str(name)).strip()
+    clean = clean.rstrip(". ")
+    if not clean:
+        clean = "unnamed"
+    # Windows reserved filenames (CON, PRN, AUX, NUL, COM1-9, LPT1-9)
+    stem = clean.split(".")[0].lower()
+    reserved = {"con", "prn", "aux", "nul"} | {f"com{i}" for i in range(1, 10)} | {f"lpt{i}" for i in range(1, 10)}
+    if stem in reserved:
+        clean = f"_{clean}"
+    return clean[:200]
 
 def download_file(url, out_path, headers=None, title="", cookie_str=""):
     """Unduh file secara direct via HTTP dengan dukungan resume dan progress bar visual."""
@@ -969,10 +1020,8 @@ def download_torrent(magnet, title, dest_dir=None):
             return False
     else:
         print(_yellow("[!] Downloader CLI (webtorrent / aria2c) tidak ditemukan."))
-        print(_dim("    Membuka magnet link via xdg-open ke torrent client default..."))
-        xdg = shutil.which("xdg-open")
-        if xdg:
-            subprocess.Popen([xdg, magnet], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(_dim("    Membuka magnet link ke torrent client default..."))
+        if open_system_target(magnet):
             print(_green("[✓] Magnet link dikirim ke torrent client."))
         else:
             print(f"Magnet: {magnet}")
@@ -1133,15 +1182,27 @@ def download_item(item, track_choice=None, auto_all=False, out_dir=None):
             print(_yellow("[!] Magnet link tidak tersedia untuk item ini."))
 
 def get_terminal_player():
-    """Cari media player CLI yang tersedia di terminal."""
-    for cmd in ["ffplay", "cvlc", "mpv"]:
+    """Cari media player CLI yang tersedia di terminal (cross-platform)."""
+    for cmd in ["ffplay", "mpv", "cvlc"]:
         path = shutil.which(cmd)
         if path:
             return cmd, path
+    if sys.platform == "darwin":
+        for cmd in ["ffplay", "mpv"]:
+            for base in ["/opt/homebrew/bin", "/usr/local/bin"]:
+                p = os.path.join(base, cmd)
+                if os.path.exists(p):
+                    return cmd, p
+    elif sys.platform.startswith("win"):
+        for cmd in ["ffplay", "mpv"]:
+            p = shutil.which(f"{cmd}.exe")
+            if p:
+                return cmd, p
     return None, None
 
-def _play_single_track_terminal(player_cmd, track_name, track_url, album_title, source, cookie_str=""):
-    """Putar satu track langsung di terminal menggunakan ffplay atau cvlc."""
+def _play_single_track_terminal(player_cmd, track_name, track_url, album_title, source, cookie_str="", player_bin=None):
+    """Putar satu track langsung di terminal menggunakan ffplay, mpv, atau cvlc."""
+    bin_path = player_bin or player_cmd
     BOLD = "\033[1m"
     CYAN = "\033[96m"
     GREEN = "\033[92m"
@@ -1165,17 +1226,17 @@ def _play_single_track_terminal(player_cmd, track_name, track_url, album_title, 
     print(f"{BOLD}{CYAN}└{'─' * (w-2)}┘{RESET}\n")
 
     if player_cmd == "ffplay":
-        cmd = ["ffplay", "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "info"]
+        cmd = [bin_path, "-nodisp", "-autoexit", "-hide_banner", "-loglevel", "info"]
         if cookie_str:
             cmd.extend(["-headers", f"User-Agent: Mozilla/5.0\r\nCookie: {cookie_str}\r\n"])
         cmd.append(track_url)
     elif player_cmd == "cvlc":
-        cmd = ["cvlc", "--play-and-exit"]
+        cmd = [bin_path, "--play-and-exit"]
         if cookie_str:
             cmd.extend([f":http-header=Cookie: {cookie_str}"])
         cmd.append(track_url)
     elif player_cmd == "mpv":
-        cmd = ["mpv", "--no-video"]
+        cmd = [bin_path, "--no-video"]
         if cookie_str:
             cmd.extend([f"--http-header-fields=Cookie: {cookie_str}"])
         cmd.append(track_url)
@@ -1194,11 +1255,13 @@ def _play_single_track_terminal(player_cmd, track_name, track_url, album_title, 
         return False
 
 def play_terminal(item, track_choice=None):
-    """Streaming audio langsung di dalam terminal (ffplay/cvlc)."""
+    """Streaming audio langsung di dalam terminal (ffplay/cvlc/mpv)."""
     player_cmd, player_path = get_terminal_player()
     if not player_cmd:
         print(_yellow("[!] Media player terminal tidak ditemukan di sistem."))
-        print(_dim("    Pasang ffmpeg/ffplay untuk streaming audio langsung di terminal."))
+        print(_dim("    Linux : sudo apt install ffmpeg mpv"))
+        print(_dim("    macOS : brew install ffmpeg mpv"))
+        print(_dim("    Win   : winget install Gyan.FFmpeg atau choco install ffmpeg"))
         print(_dim("    Alternatif: gunakan v<nomor> untuk VLC player GUI."))
         return
 
@@ -1230,19 +1293,19 @@ def play_terminal(item, track_choice=None):
         return
 
     if len(tracks) == 1:
-        _play_single_track_terminal(player_cmd, tracks[0]["name"], tracks[0]["url"], title, source, cookie_str)
+        _play_single_track_terminal(player_cmd, tracks[0]["name"], tracks[0]["url"], title, source, cookie_str, player_bin=player_path)
         return
 
     if track_choice is not None:
         if 0 <= track_choice < len(tracks):
             t = tracks[track_choice]
-            _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str)
+            _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str, player_bin=player_path)
             return
         elif track_choice == -1:
             print(f"\n{_bold(_green(f'[>] Memulai Playlist Mode ({len(tracks)} track)...'))}")
             for idx, t in enumerate(tracks, 1):
                 print(f"\n{_dim(f'--- Track {idx} dari {len(tracks)} ---')}")
-                ok = _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str)
+                ok = _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str, player_bin=player_path)
                 if not ok:
                     try:
                         c = input(_yellow("\nLanjut ke track berikutnya? [y/n/q] > ")).strip().lower()
@@ -1276,7 +1339,7 @@ def play_terminal(item, track_choice=None):
             print(f"\n{_bold(_green(f'[>] Memulai Playlist Mode ({len(tracks)} track)...'))}")
             for idx, t in enumerate(tracks, 1):
                 print(f"\n{_dim(f'--- Track {idx} dari {len(tracks)} ---')}")
-                ok = _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str)
+                ok = _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str, player_bin=player_path)
                 if not ok:
                     try:
                         c = input(_yellow("\nLanjut ke track berikutnya? [y/n/q] > ")).strip().lower()
@@ -1290,15 +1353,44 @@ def play_terminal(item, track_choice=None):
             t_idx = int(p_in) - 1
             if 0 <= t_idx < len(tracks):
                 t = tracks[t_idx]
-                _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str)
+                _play_single_track_terminal(player_cmd, t["name"], t["url"], title, source, cookie_str, player_bin=player_path)
             else:
                 print(f"{YELLOW}[!] Nomor track tidak valid (1-{len(tracks)}).{RESET}")
 
+def _find_vlc():
+    """Temukan lokasi executable VLC secara cross-platform (Linux, macOS, Windows)."""
+    vlc = shutil.which("vlc")
+    if vlc:
+        return vlc
+    if sys.platform == "darwin":
+        mac_paths = [
+            "/Applications/VLC.app/Contents/MacOS/VLC",
+            os.path.expanduser("~/Applications/VLC.app/Contents/MacOS/VLC"),
+            "/opt/homebrew/bin/vlc",
+            "/usr/local/bin/vlc"
+        ]
+        for p in mac_paths:
+            if os.path.exists(p):
+                return p
+    elif sys.platform.startswith("win"):
+        win_paths = [
+            os.path.expandvars(r"%ProgramFiles%\VideoLAN\VLC\vlc.exe"),
+            os.path.expandvars(r"%ProgramFiles(x86)%\VideoLAN\VLC\vlc.exe"),
+            os.path.expandvars(r"%LocalAppData%\Programs\VideoLAN\VLC\vlc.exe"),
+        ]
+        for p in win_paths:
+            if os.path.exists(p):
+                return p
+    return None
+
 def play_vlc(item):
     """Streaming audio langsung di VLC player."""
-    vlc = shutil.which("vlc")
+    vlc = _find_vlc()
     if not vlc:
-        print(_yellow("[!] VLC player tidak terpasang di sistem (/usr/bin/vlc)."))
+        print(_yellow("[!] VLC player tidak terpasang di sistem."))
+        print(_dim("    Linux : sudo apt install vlc"))
+        print(_dim("    macOS : brew install --cask vlc atau unduh di videolan.org"))
+        print(_dim("    Win   : winget install VideoLAN.VLC atau unduh di videolan.org"))
         return
 
     source = item.get("source", "")
@@ -1519,13 +1611,10 @@ def interactive_menu(flat_results):
                 if magnet and magnet.startswith("magnet:"):
                     print(f"\n{BOLD}{MAGENTA}Magnet Link [{item.get('title')}]:{RESET}")
                     print(magnet)
-                    xdg = shutil.which("xdg-open")
-                    if xdg:
-                        try:
-                            subprocess.Popen([xdg, magnet], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            print(f"{GREEN}[✓] Mengirim magnet link ke torrent client default...{RESET}")
-                        except Exception:
-                            pass
+                    if open_system_target(magnet):
+                        print(f"{GREEN}[✓] Mengirim magnet link ke torrent client default...{RESET}")
+                    else:
+                        print(f"{YELLOW}[!] Tidak dapat membuka magnet link secara otomatis.{RESET}")
                 else:
                     print(f"{YELLOW}[!] Item ini menggunakan direct link, bukan magnet link. Gunakan aksi nomor atau d{idx+1}.{RESET}")
             else:
