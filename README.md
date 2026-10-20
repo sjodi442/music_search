@@ -20,8 +20,11 @@ Available as both a **powerful CLI interactive tool** and a **modern, responsive
 - **📦 On-The-Fly ZIP Generator:** Download entire multi-track albums in a single click via generator-based streaming ZIP — 0 MB disk space footprint on the server.
 - **🔍 Multi-Source Aggregator:**
   - `server.elsci.one` (Direct lossless directory index with automated Anubis PoW solver)
-  - `archive.org` (Live concert recordings and lossless public archives)
-  - `torrents-csv` (P2P torrent/magnet search)
+  - `nyaa.si` (Anime OST, J-Pop/J-Rock, and Mora 24-bit Hi-Res FLAC catalog)
+  - `thepiratebay` (Full discographies, PBTHAL vinyl rips, and western audiophile FLAC)
+  - `archive.org` (Direct FLAC legal, netlabels & historical recordings)
+  - `archive.org Live (etree)` (250,000+ live concert soundboard FLAC recordings)
+  - `torrents-csv` (Global multi-tracker P2P torrent search)
   - `rutracker` (Hi-Res audiophile releases)
 - **⚡ Two-Tier Caching:** Instant response times (<10ms) powered by in-memory backend TTL cache and client-side browser navigation cache.
 

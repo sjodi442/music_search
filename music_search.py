@@ -36,6 +36,7 @@ Env (opsional):
 import argparse
 import concurrent.futures
 import datetime
+import email.utils
 import hashlib
 import json
 import os
@@ -48,6 +49,7 @@ import sys
 import time
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from http.cookiejar import CookieJar, Cookie
 
 # ── Cross-Platform Setup (Linux, macOS, Windows) ──────────────────────────────
@@ -141,7 +143,7 @@ except ImportError:
     BeautifulSoup = None
 
 TIMEOUT     = 12
-MAX_WORKERS = 4
+MAX_WORKERS = 8
 UA          = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
 HEADERS     = {
     "User-Agent":      UA,
@@ -650,17 +652,212 @@ def search_archive(query, fmt="flac", sort="seeds", page=1, limit=10):
         })
     return results
 
+# ── Nyaa.si (Anime OST, J-Pop/J-Rock, Mora 24-bit Hi-Res) ──────────────────────
+
+def search_nyaa(query, fmt="flac", sort="seeds", page=1, limit=10):
+    """
+    Cari via Nyaa.si — indeks audio lossless, Anime OST, J-Pop/J-Rock, dan Mora Hi-Res terbesar.
+    c=2_1: Audio - Lossless
+    c=2_0: Audio - All
+    """
+    category = "2_1" if fmt in ("flac", "wav") else "2_0"
+    params = urllib.parse.urlencode({
+        "page": "rss",
+        "q": query,
+        "c": category,
+        "p": str(page),
+    })
+    if sort == "seeds":
+        params += "&s=seeders&o=desc"
+    elif sort == "size":
+        params += "&s=size&o=desc"
+
+    url = f"https://nyaa.si/?{params}"
+    text = _req(url)
+    if not text and category == "2_1":
+        params = urllib.parse.urlencode({
+            "page": "rss",
+            "q": query,
+            "c": "2_0",
+            "p": str(page),
+        })
+        if sort == "seeds":
+            params += "&s=seeders&o=desc"
+        url = f"https://nyaa.si/?{params}"
+        text = _req(url)
+
+    if not text:
+        return []
+
+    try:
+        root = ET.fromstring(text.encode("utf-8", errors="replace"))
+        items = root.findall("./channel/item")
+    except Exception:
+        return []
+
+    results = []
+    for item in items[:limit]:
+        title = item.findtext("title") or ""
+        link = item.findtext("link") or ""
+        guid = item.findtext("guid") or ""
+        pub_date = item.findtext("pubDate") or ""
+        date = ""
+        if pub_date:
+            try:
+                date = email.utils.parsedate_to_datetime(pub_date).strftime("%Y-%m-%d")
+            except Exception:
+                pass
+
+        infohash = ""
+        seeds = "0"
+        leeches = "0"
+        size = "?"
+        for child in item:
+            tag = child.tag
+            if "infoHash" in tag:
+                infohash = child.text or ""
+            elif "seeders" in tag:
+                seeds = child.text or "0"
+            elif "leechers" in tag:
+                leeches = child.text or "0"
+            elif "size" in tag:
+                size = child.text or "?"
+
+        magnet = _make_magnet(infohash, title) if infohash else ""
+        results.append({
+            "source":  "nyaa",
+            "title":   title,
+            "size":    size,
+            "seeds":   seeds,
+            "leeches": leeches,
+            "date":    date,
+            "url":     guid or link,
+            "magnet":  magnet,
+            "type":    "torrent",
+        })
+    return results
+
+# ── The Pirate Bay (Discography, Vinyl Rips, Western FLAC) ─────────────────────
+
+def search_piratebay(query, fmt="flac", sort="seeds", page=1, limit=10):
+    """
+    Cari via The Pirate Bay (tpb.party) — discography lengkap, vinyl rips (PBTHAL), dan western albums.
+    """
+    q_str = f"{query} {fmt}" if fmt and fmt != "all" else query
+    sort_code = "7" if sort == "seeds" else ("3" if sort == "date" else "5")
+    url = f"https://tpb.party/search/{urllib.parse.quote(q_str)}/{page}/{sort_code}/100"
+    html = _req(url)
+
+    rows = []
+    if html:
+        rows = re.findall(
+            r'<td><a href="(https://tpb\.party/torrent/\d+/[^"]+)"[^>]*>([^<]+)</a>\s*</td>.*?'
+            r'href="(magnet:\?[^"]+)".*?'
+            r'<td align="right">([^<]+)</td>\s*'
+            r'<td align="right">(\d+)</td>\s*'
+            r'<td align="right">(\d+)</td>',
+            html,
+            re.DOTALL
+        )
+    if not rows and fmt:
+        url = f"https://tpb.party/search/{urllib.parse.quote(query)}/{page}/{sort_code}/100"
+        html = _req(url)
+        if html:
+            rows = re.findall(
+                r'<td><a href="(https://tpb\.party/torrent/\d+/[^"]+)"[^>]*>([^<]+)</a>\s*</td>.*?'
+                r'href="(magnet:\?[^"]+)".*?'
+                r'<td align="right">([^<]+)</td>\s*'
+                r'<td align="right">(\d+)</td>\s*'
+                r'<td align="right">(\d+)</td>',
+                html,
+                re.DOTALL
+            )
+
+    results = []
+    for link, title, mag, size, seeds, leech in rows[:limit]:
+        results.append({
+            "source":  "piratebay",
+            "title":   title.strip(),
+            "size":    size.replace("&nbsp;", " ").strip(),
+            "seeds":   seeds,
+            "leeches": leech,
+            "date":    "",
+            "url":     link,
+            "magnet":  mag,
+            "type":    "torrent",
+        })
+    return results
+
+# ── Archive.org Live Music Archive (etree - Soundboards) ───────────────────────
+
+def search_archive_live(query, fmt="flac", sort="seeds", page=1, limit=10):
+    """
+    Cari via Archive.org Live Music Archive (etree) — 250k+ konser live soundboard FLAC legal.
+    """
+    sort_param = "downloads+desc" if sort in ("seeds", "relevance") else ("publicdate+desc" if sort == "date" else "item_size+desc")
+    q_enc = urllib.parse.quote(query)
+    url = (
+        f"https://archive.org/advancedsearch.php?q=({q_enc})+AND+collection:etree+AND+mediatype:etree"
+        f"&fl[]=identifier,title,creator,date,downloads,item_size"
+        f"&sort[]={sort_param}&rows={limit}&page={page}&output=json"
+    )
+    headers = {"User-Agent": "MusicSearch/1.0", "Accept": "application/json"}
+    text = _req(url, extra_headers=headers)
+    if not text:
+        return []
+
+    try:
+        data = json.loads(text)
+        docs = data.get("response", {}).get("docs", [])
+    except Exception:
+        return []
+
+    results = []
+    for doc in docs:
+        ident = doc.get("identifier", "")
+        title = doc.get("title") or ident
+        creator = doc.get("creator", "")
+        if creator and isinstance(creator, str) and creator not in title:
+            title = f"{creator} — {title}"
+        elif isinstance(creator, list) and creator:
+            title = f"{creator[0]} — {title}"
+
+        size = _bytes_human(doc.get("item_size", 0)) if doc.get("item_size") else "?"
+        date = (doc.get("date") or "")[:10]
+        dl_count = str(doc.get("downloads", 0))
+        results.append({
+            "source":  "archive_live",
+            "title":   title,
+            "size":    size,
+            "seeds":   dl_count + " DL",
+            "leeches": "",
+            "date":    date,
+            "format":  "FLAC (Live SBD)",
+            "url":     f"https://archive.org/details/{ident}",
+            "magnet":  f"https://archive.org/download/{ident}",
+            "type":    "direct",
+            "download_url": f"https://archive.org/download/{ident}",
+        })
+    return results
+
 # ── Dispatcher ────────────────────────────────────────────────────────────────
 
 SOURCES = {
-    "elsci":     search_elsci,
-    "archive":   search_archive,
-    "torrent":   search_torrent,
-    "rutracker": search_rutracker,
+    "elsci":        search_elsci,
+    "nyaa":         search_nyaa,
+    "piratebay":    search_piratebay,
+    "archive":      search_archive,
+    "archive_live": search_archive_live,
+    "torrent":      search_torrent,
+    "rutracker":    search_rutracker,
 }
 
 def search_all(query, fmt="flac", sort="seeds", page=1, limit=10, source=None):
-    targets = {source: SOURCES[source]} if source and source in SOURCES else SOURCES
+    targets = {source: SOURCES[source]} if source and source in SOURCES else dict(SOURCES)
+    # Jangan jalankan RuTracker saat mode pencarian semua sumber jika kredensial belum di-set
+    if not source and "rutracker" in targets and not os.environ.get("RUTRACKER_USER"):
+        targets.pop("rutracker", None)
+
     results = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futures = {
@@ -674,7 +871,7 @@ def search_all(query, fmt="flac", sort="seeds", page=1, limit=10, source=None):
             except Exception as e:
                 results[name] = [{"source": name, "error": str(e)}]
     ordered = {}
-    for k in ["elsci", "archive", "torrent", "rutracker"]:
+    for k in ["elsci", "nyaa", "piratebay", "archive", "archive_live", "torrent", "rutracker"]:
         if k in results:
             ordered[k] = results[k]
     return ordered
@@ -1654,16 +1851,18 @@ def full_interactive_prompt(args):
         print(f"\n{BOLD}{CYAN}┌{'─' * 72}┐{RESET}")
         print(f"{BOLD}{CYAN}{_box_line(BOLD + '🎧 MUSIC HI-RES SEARCH — PUSAT KONTROL INTERAKTIF' + RESET, 49)}{RESET}")
         print(f"{BOLD}{CYAN}├{'─' * 72}┤{RESET}")
-        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[1]' + RESET + '  ' + BOLD + 'Cari Judul Album / Artis (Semua Sumber)' + RESET, 44)}{RESET}")
-        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[2]' + RESET + '  ' + BOLD + 'Cari Khusus Direct Download (server.elsci.one & Archive.org)' + RESET, 65)}{RESET}")
-        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[3]' + RESET + '  ' + BOLD + 'Cari Khusus Torrent / Magnet (torrents-csv & RuTracker)' + RESET, 60)}{RESET}")
-        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[4]' + RESET + '  ' + BOLD + 'Cari dengan Format Tertentu (FLAC, Hi-Res, WAV, MP3)' + RESET, 57)}{RESET}")
+        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[1]' + RESET + '  ' + BOLD + 'Cari Judul Album / Artis (Semua 7 Sumber)' + RESET, 44)}{RESET}")
+        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[2]' + RESET + '  ' + BOLD + 'Cari Direct Download & Stream (elsci & archive.org)' + RESET, 51)}{RESET}")
+        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[3]' + RESET + '  ' + BOLD + 'Cari Konser Live Soundboard (Archive Live / etree)' + RESET, 50)}{RESET}")
+        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[4]' + RESET + '  ' + BOLD + 'Cari Anime OST, J-Pop & Mora Hi-Res (Nyaa.si)' + RESET, 45)}{RESET}")
+        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[5]' + RESET + '  ' + BOLD + 'Cari Discography & Vinyl Rips (The Pirate Bay)' + RESET, 46)}{RESET}")
+        print(f"{BOLD}{CYAN}{_box_line(GREEN + '[6]' + RESET + '  ' + BOLD + 'Cari Format Tertentu (FLAC, Hi-Res, WAV, MP3)' + RESET, 48)}{RESET}")
         print(f"{BOLD}{CYAN}├{'─' * 72}┤{RESET}")
         print(f"{BOLD}{CYAN}{_box_line(YELLOW + '[q]' + RESET + '  ' + BOLD + 'Keluar' + RESET, 11)}{RESET}")
         print(f"{BOLD}{CYAN}└{'─' * 72}┘{RESET}")
 
         try:
-            mode = input(f"  {BOLD}{GREEN}Pilih Menu [1-4 / q] > {RESET}").strip().lower()
+            mode = input(f"  {BOLD}{GREEN}Pilih Menu [1-6 / q] > {RESET}").strip().lower()
         except (EOFError, KeyboardInterrupt):
             print("\nKeluar.")
             break
@@ -1704,15 +1903,35 @@ def full_interactive_prompt(args):
 
         elif mode == "3":
             try:
-                q_in = input(f"\n  {BOLD}Masukkan nama album/artis (Torrent/Magnet) > {RESET}").strip()
+                q_in = input(f"\n  {BOLD}Masukkan nama band / musisi (Live Soundboard) > {RESET}").strip()
             except (EOFError, KeyboardInterrupt):
                 break
             if not q_in:
                 print(f"  {YELLOW}[!] Query tidak boleh kosong.{RESET}")
                 continue
-            src_choice = "torrent"
+            src_choice = "archive_live"
 
         elif mode == "4":
+            try:
+                q_in = input(f"\n  {BOLD}Masukkan judul anime / lagu / artis (Nyaa.si) > {RESET}").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not q_in:
+                print(f"  {YELLOW}[!] Query tidak boleh kosong.{RESET}")
+                continue
+            src_choice = "nyaa"
+
+        elif mode == "5":
+            try:
+                q_in = input(f"\n  {BOLD}Masukkan nama album/artis (The Pirate Bay) > {RESET}").strip()
+            except (EOFError, KeyboardInterrupt):
+                break
+            if not q_in:
+                print(f"  {YELLOW}[!] Query tidak boleh kosong.{RESET}")
+                continue
+            src_choice = "piratebay"
+
+        elif mode == "6":
             try:
                 q_in = input(f"\n  {BOLD}Masukkan nama album atau artis > {RESET}").strip()
                 fmt_in = input(f"  {BOLD}Pilih format audio [flac / wav / mp3 / aac] (default: flac) > {RESET}").strip().lower()
@@ -1724,7 +1943,7 @@ def full_interactive_prompt(args):
             if fmt_in:
                 fmt_choice = fmt_in
         else:
-            print(f"  {YELLOW}[!] Pilihan tidak valid. Ketik 1, 2, 3, 4, atau q.{RESET}")
+            print(f"  {YELLOW}[!] Pilihan tidak valid. Ketik 1, 2, 3, 4, 5, 6, atau q.{RESET}")
             continue
 
         print(f"\n{BOLD}Mencari :{RESET} {BOLD}{q_in}{RESET} [{fmt_choice.upper()}]  |  Sumber: {src_choice or 'semua'}")
@@ -1744,7 +1963,7 @@ def main():
         epilog=__doc__,
     )
     ap.add_argument("-q", "--query",  help="Query pencarian")
-    ap.add_argument("-s", "--source", choices=list(SOURCES), help="Sumber spesifik (elsci, archive, torrent, rutracker)")
+    ap.add_argument("-s", "--source", choices=list(SOURCES), help="Sumber spesifik (elsci, nyaa, piratebay, archive, archive_live, torrent, rutracker)")
     ap.add_argument("--format", default="flac", help="Format audio (default: flac)")
     ap.add_argument("--type",   choices=["album", "single", "artist"], help="Hint tipe")
     ap.add_argument("--sort",   choices=["seeds", "size", "date"], default="seeds")
@@ -1780,15 +1999,18 @@ def main():
         rt_ok = bool(os.environ.get("RUTRACKER_USER"))
         print("Sumber aktif:")
         notes = {
-            "elsci":     "server.elsci.one/Music/ — direct FLAC/Hi-Res open directory",
-            "archive":   "archive.org — direct FLAC legal, live recordings & audio",
-            "torrent":   "torrents-csv.com — aggregasi multi-tracker, tanpa login",
-            "rutracker": "rutracker.org — koleksi FLAC J-music terlengkap" + (
-                         " [login OK]" if rt_ok else " [BUTUH: RUTRACKER_USER + RUTRACKER_PASS]"),
+            "elsci":        "server.elsci.one/Music/ — direct FLAC/Hi-Res open directory",
+            "nyaa":         "nyaa.si — anime OST, J-Pop/J-Rock, dan Mora 24-bit Hi-Res FLAC",
+            "piratebay":    "thepiratebay (tpb.party) — discography lengkap, vinyl rips & western FLAC",
+            "archive":      "archive.org — direct FLAC legal, netlabels & historical recordings",
+            "archive_live": "archive.org Live (etree) — 250k+ soundboard live concert FLAC recordings",
+            "torrent":      "torrents-csv.com — aggregasi multi-tracker global, tanpa login",
+            "rutracker":    "rutracker.org — koleksi FLAC J-music terlengkap" + (
+                            " [login OK]" if rt_ok else " [BUTUH: RUTRACKER_USER + RUTRACKER_PASS]"),
         }
         for k, note in notes.items():
             ok = k != "rutracker" or rt_ok
-            print(f"  {_green('✓') if ok else _yellow('!')} {k:9}: {note}")
+            print(f"  {_green('✓') if ok else _yellow('!')} {k:12}: {note}")
         return
 
     # Jika dipanggil tanpa query atau dengan flag -i tanpa query -> Masuk mode interaktif penuh
