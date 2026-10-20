@@ -1,0 +1,18 @@
+services:
+  music-search:
+    build: .
+    container_name: music-search
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - HOST=0.0.0.0
+      - PORT=8080
+      # Optional: set RuTracker credentials if desired
+      # - RUTRACKER_USER=
+      # - RUTRACKER_PASS=
+    volumes:
+      - music-cache:/root/.cache/music_search
+
+volumes:
+  music-cache:

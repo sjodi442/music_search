@@ -1,0 +1,8 @@
+# Pure Python Standard Library Architecture
+# ==========================================
+# This project intentionally requires ZERO external Python package dependencies (pip).
+# Both the CLI engine and Web App use Python 3.8+ stdlib and a vendored single-file micro-framework (bottle.py).
+#
+# Optional external system binaries (install via system package manager):
+# - mpv / vlc / ffmpeg (for terminal audio streaming in CLI mode)
+# - cloudflare-warp (optional, if ISP blocks upstream torrent/music sources)

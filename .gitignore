@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local caches & cookies
+.cache/
+cookie.json
+elsci_index.json
+*.cookie
+*.session
+
+# Downloads & local media
+downloads/
+music_downloads/
+*.flac
+*.mp3
+*.wav
+*.zip
+
+# Logs and databases
+*.log
+*.sqlite3
+
+# Environment & IDE
+.env
+.venv/
+env/
+venv/
+.idea/
+.vscode/
+*.swp
+.DS_Store
