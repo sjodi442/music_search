@@ -586,13 +586,19 @@ def search_archive(query, fmt="flac", sort="seeds", page=1, limit=10):
     sort_map = {"seeds": "downloads", "date": "publicdate", "size": "item_size"}
     so = sort_map.get(sort, "downloads")
 
-    words = query.split()
+    # Lucene query yang presisi: cegah noise dan pencarian token acak
+    clean_q = re.sub(r'["\+\-\*\(\)\:\^\[\]\{\}\~\?\\]', ' ', query).strip()
+    phrase_q = f'"{clean_q}"'
+    terms_q = " AND ".join(clean_q.split()) if clean_q else phrase_q
+    
     queries = [
-        f"({query}) AND (format:FLAC OR format:\"24bit Flac\") AND mediatype:audio",
-        f"({query}) AND mediatype:audio",
+        # 1. Exact phrase / title / creator match dengan format lossless
+        f'(title:{phrase_q} OR creator:{phrase_q} OR {phrase_q}) AND (format:FLAC OR format:"24bit Flac") AND mediatype:audio',
+        # 2. Exact phrase audio umum
+        f'(title:{phrase_q} OR creator:{phrase_q} OR {phrase_q}) AND mediatype:audio',
+        # 3. Semua kata wajib ada (AND bukan OR)
+        f'({terms_q}) AND mediatype:audio',
     ]
-    if len(words) > 1:
-        queries.append(f"({words[-1]}) AND mediatype:audio")
 
     docs = []
     for q_try in queries:
@@ -600,7 +606,7 @@ def search_archive(query, fmt="flac", sort="seeds", page=1, limit=10):
             "q":      q_try,
             "fl[]":   ["identifier", "title", "creator", "date", "downloads", "item_size", "format"],
             "sort[]": f"{so} desc",
-            "rows":   str(limit),
+            "rows":   str(limit * 2),  # Ambil cadangan untuk filter presisi
             "page":   str(page),
             "output": "json",
         }, doseq=True)
@@ -620,6 +626,9 @@ def search_archive(query, fmt="flac", sort="seeds", page=1, limit=10):
 
     if not docs:
         return []
+
+    # Relevance scoring & filtering
+    q_words = [w.lower() for w in clean_q.split() if len(w) > 1]
     results = []
     for d in docs:
         ident   = d.get("identifier", "")
@@ -638,6 +647,12 @@ def search_archive(query, fmt="flac", sort="seeds", page=1, limit=10):
         fmt_tag = " | ".join(f for f in fmts if "flac" in f.lower() or "wav" in f.lower())[:40]
         dl_url  = f"{IA_DL}/{ident}"
         label   = f"{creator} — {title}" if creator else title
+
+        # Cek relevansi: apakah judul/creator/ident mengandung query
+        haystack = f"{title} {creator} {ident}".lower()
+        if q_words and not any(w in haystack for w in q_words):
+            continue
+
         results.append({
             "source":  "Archive.org",
             "title":   label,
@@ -650,6 +665,9 @@ def search_archive(query, fmt="flac", sort="seeds", page=1, limit=10):
             "magnet":  dl_url,
             "type":    "direct",
         })
+        if len(results) >= limit:
+            break
+
     return results
 
 # ── Nyaa.si (Anime OST, J-Pop/J-Rock, Mora 24-bit Hi-Res) ──────────────────────
@@ -744,44 +762,40 @@ def search_piratebay(query, fmt="flac", sort="seeds", page=1, limit=10):
     Cari via The Pirate Bay (tpb.party) — discography lengkap, vinyl rips (PBTHAL), dan western albums.
     """
     q_str = f"{query} {fmt}" if fmt and fmt != "all" else query
-    sort_code = "7" if sort == "seeds" else ("3" if sort == "date" else "5")
+    sort_code = "7" if sort in ("seeds", "relevance") else ("3" if sort == "date" else "5")
     url = f"https://tpb.party/search/{urllib.parse.quote(q_str)}/{page}/{sort_code}/100"
     html = _req(url)
 
+    row_pattern = (
+        r'<td class="vertTh"><a [^>]*>([^<]+)</a></td>\s*'
+        r'<td><a href="([^"]+)"[^>]*>([^<]+)</a>\s*</td>\s*'
+        r'<td>([^<]*)</td>\s*'
+        r'<td>.*?href="(magnet:\?[^"]+)".*?</td>\s*'
+        r'<td align="right">([^<]+)</td>\s*'
+        r'<td align="right">(\d+)</td>\s*'
+        r'<td align="right">(\d+)</td>'
+    )
+
     rows = []
     if html:
-        rows = re.findall(
-            r'<td><a href="(https://tpb\.party/torrent/\d+/[^"]+)"[^>]*>([^<]+)</a>\s*</td>.*?'
-            r'href="(magnet:\?[^"]+)".*?'
-            r'<td align="right">([^<]+)</td>\s*'
-            r'<td align="right">(\d+)</td>\s*'
-            r'<td align="right">(\d+)</td>',
-            html,
-            re.DOTALL
-        )
+        rows = re.findall(row_pattern, html, re.DOTALL)
     if not rows and fmt:
         url = f"https://tpb.party/search/{urllib.parse.quote(query)}/{page}/{sort_code}/100"
         html = _req(url)
         if html:
-            rows = re.findall(
-                r'<td><a href="(https://tpb\.party/torrent/\d+/[^"]+)"[^>]*>([^<]+)</a>\s*</td>.*?'
-                r'href="(magnet:\?[^"]+)".*?'
-                r'<td align="right">([^<]+)</td>\s*'
-                r'<td align="right">(\d+)</td>\s*'
-                r'<td align="right">(\d+)</td>',
-                html,
-                re.DOTALL
-            )
+            rows = re.findall(row_pattern, html, re.DOTALL)
 
     results = []
-    for link, title, mag, size, seeds, leech in rows[:limit]:
+    for cat, link, title, date, mag, size, seeds, leech in rows[:limit]:
+        fmt_label = "FLAC" if "flac" in cat.lower() or "flac" in title.lower() else "MP3/Audio"
         results.append({
             "source":  "piratebay",
             "title":   title.strip(),
             "size":    size.replace("&nbsp;", " ").strip(),
             "seeds":   seeds,
             "leeches": leech,
-            "date":    "",
+            "date":    date.replace("&nbsp;", " ").strip(),
+            "format":  fmt_label,
             "url":     link,
             "magnet":  mag,
             "type":    "torrent",
@@ -795,11 +809,15 @@ def search_archive_live(query, fmt="flac", sort="seeds", page=1, limit=10):
     Cari via Archive.org Live Music Archive (etree) — 250k+ konser live soundboard FLAC legal.
     """
     sort_param = "downloads+desc" if sort in ("seeds", "relevance") else ("publicdate+desc" if sort == "date" else "item_size+desc")
-    q_enc = urllib.parse.quote(query)
+    clean_q = re.sub(r'["\+\-\*\(\)\:\^\[\]\{\}\~\?\\]', ' ', query).strip()
+    phrase_q = f'"{clean_q}"'
+    terms_q = " AND ".join(clean_q.split()) if clean_q else phrase_q
+    q_solr = urllib.parse.quote(f'(title:{phrase_q} OR creator:{phrase_q} OR {phrase_q} OR ({terms_q})) AND collection:etree AND mediatype:etree')
+
     url = (
-        f"https://archive.org/advancedsearch.php?q=({q_enc})+AND+collection:etree+AND+mediatype:etree"
+        f"https://archive.org/advancedsearch.php?q={q_solr}"
         f"&fl[]=identifier,title,creator,date,downloads,item_size"
-        f"&sort[]={sort_param}&rows={limit}&page={page}&output=json"
+        f"&sort[]={sort_param}&rows={limit * 2}&page={page}&output=json"
     )
     headers = {"User-Agent": "MusicSearch/1.0", "Accept": "application/json"}
     text = _req(url, extra_headers=headers)
@@ -812,6 +830,7 @@ def search_archive_live(query, fmt="flac", sort="seeds", page=1, limit=10):
     except Exception:
         return []
 
+    q_words = [w.lower() for w in clean_q.split() if len(w) > 1]
     results = []
     for doc in docs:
         ident = doc.get("identifier", "")
@@ -821,6 +840,11 @@ def search_archive_live(query, fmt="flac", sort="seeds", page=1, limit=10):
             title = f"{creator} — {title}"
         elif isinstance(creator, list) and creator:
             title = f"{creator[0]} — {title}"
+
+        # Filter relevansi: pastikan tidak melenceng ke artis lain
+        haystack = f"{title} {creator} {ident}".lower()
+        if q_words and not any(w in haystack for w in q_words):
+            continue
 
         size = _bytes_human(doc.get("item_size", 0)) if doc.get("item_size") else "?"
         date = (doc.get("date") or "")[:10]
@@ -838,6 +862,8 @@ def search_archive_live(query, fmt="flac", sort="seeds", page=1, limit=10):
             "type":    "direct",
             "download_url": f"https://archive.org/download/{ident}",
         })
+        if len(results) >= limit:
+            break
     return results
 
 # ── Dispatcher ────────────────────────────────────────────────────────────────

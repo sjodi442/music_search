@@ -11,6 +11,7 @@ Features:
 import os
 import sys
 import io
+import re
 import time
 import json
 import zipfile
@@ -85,6 +86,26 @@ def api_search():
             for it in items:
                 if "error" not in it:
                     flattened.append(it)
+
+    # Ranking relevansi: prioritaskan item yang judul/artisnya mengandung token query pengguna
+    q_tokens = [t.lower() for t in re.sub(r'[^\w\s]', ' ', q).split() if len(t) > 1]
+    def _rank_score(it):
+        title = (it.get("title") or "").lower()
+        score = 0
+        if q.lower() in title:
+            score += 100
+        for token in q_tokens:
+            if token in title:
+                score += 20
+        # Bobot tambahan untuk seeds / downloads
+        seeds_raw = str(it.get("seeds", "0")).replace(" DL", "").replace(",", "")
+        m_seed = re.search(r'\d+', seeds_raw)
+        seeds_num = int(m_seed.group(0)) if m_seed else 0
+        score += min(seeds_num, 50)
+        return score
+
+    if sort in ("seeds", "relevance", None, ""):
+        flattened.sort(key=_rank_score, reverse=True)
 
     res_json = json.dumps({
         "query": q,

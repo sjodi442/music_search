@@ -833,7 +833,7 @@
     document.getElementById("countAll").textContent = items.length;
     document.getElementById("countDirect").textContent = items.filter(it => it.type === "direct" && !(it.source || "").toLowerCase().includes("archive")).length;
     document.getElementById("countArchive").textContent = items.filter(it => (it.source || "").toLowerCase().includes("archive")).length;
-    document.getElementById("countTorrent").textContent = items.filter(it => it.type === "torrent").length;
+    document.getElementById("countTorrent").textContent = items.filter(it => it.type === "torrent" || (it.source || "").toLowerCase() === "piratebay").length;
   }
 
   function applyQuickFilter(type, btnElem) {
@@ -853,7 +853,7 @@
       } else if (type === "archive") {
         show = sName.includes("archive");
       } else if (type === "torrent") {
-        show = (sType === "torrent");
+        show = (sType === "torrent" || sName.includes("piratebay"));
       }
 
       card.classList.toggle("hidden", !show);
