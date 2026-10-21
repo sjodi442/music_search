@@ -77,15 +77,19 @@ http://localhost:8080
 PORT=3000 HOST=127.0.0.1 python3 app.py
 ```
 
-#### Web Player Shortcuts
-| Shortcut | Action |
-| :--- | :--- |
-| `Space` | Play / Pause |
-| `←` / `→` | Seek backward / forward 5 seconds |
-| `↑` / `↓` | Volume up / down 5% |
-| `N` | Skip to next track in queue |
-| `P` | Skip to previous track in queue |
-| `M` | Mute / Unmute |
+#### Web Player UI/UX & Controls
+- **Custom Interactive Seekbar & Buffer Indicator**: Precise seeking with live downloaded buffer bar percentage (`audio.buffered`) to prevent stutter during FLAC playback.
+- **Visual Wave Equalizer**: Zero-overhead GPU-accelerated CSS keyframes on active playing tracks.
+- **Glassmorphism Audio Dock**: Floating bottom player with volume slider and responsive track controls.
+- **Quick Source Filter Pills**: Instant client-side DOM filtering (`All`, `Direct FLAC`, `Archive.org`, `Torrent / Magnet`).
+- **Pintasan Keyboard (Tekan `?` untuk modal shortcut)**:
+  - `Space`: Play / Pause
+  - `←` / `→`: Seek backward / forward 5 detik
+  - `↑` / `↓`: Volume naik / turun 5%
+  - `N` / `P`: Track berikutnya / sebelumnya di antrean
+  - `M`: Mute / Unmute
+  - `/`: Fokus ke kotak pencarian
+  - `?`: Tampilkan / tutup modal cheat-sheet keyboard
 
 ---
 

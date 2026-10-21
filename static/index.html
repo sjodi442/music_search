@@ -421,11 +421,82 @@
       align-items: center;
       gap: 10px;
     }
-    .audio-dock audio {
+    /* Custom Player Dock & Seekbar */
+    .player-dock-center {
+      display: flex;
+      flex-direction: column;
       flex: 2;
-      max-width: 520px;
-      height: 36px;
-      outline: none;
+      max-width: 580px;
+      gap: 6px;
+    }
+    .seekbar-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      width: 100%;
+    }
+    .time-label {
+      font-size: 0.75rem;
+      font-family: monospace;
+      color: var(--text-muted);
+      min-width: 38px;
+    }
+    .seekbar-track {
+      position: relative;
+      flex: 1;
+      height: 6px;
+      background: #1e293b;
+      border-radius: 9999px;
+      cursor: pointer;
+      user-select: none;
+    }
+    .seekbar-buffer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: #334155;
+      border-radius: 9999px;
+      width: 0%;
+      pointer-events: none;
+      transition: width 0.2s ease-out;
+    }
+    .seekbar-progress {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: var(--primary);
+      border-radius: 9999px;
+      width: 0%;
+      pointer-events: none;
+    }
+    .seekbar-thumb {
+      position: absolute;
+      top: 50%;
+      left: 0%;
+      width: 12px;
+      height: 12px;
+      background: #ffffff;
+      border-radius: 50%;
+      transform: translate(-50%, -50%) scale(0);
+      transition: transform 0.15s ease;
+      box-shadow: 0 0 8px rgba(0,0,0,0.6);
+      pointer-events: none;
+    }
+    .seekbar-track:hover .seekbar-thumb {
+      transform: translate(-50%, -50%) scale(1);
+    }
+    .vol-container {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .vol-slider {
+      width: 70px;
+      accent-color: var(--primary);
+      cursor: pointer;
+      height: 4px;
     }
     @media (max-width: 768px) {
       .audio-dock {
@@ -540,15 +611,28 @@
 
   <div class="player-controls">
     <button class="btn btn-sm btn-secondary" onclick="playPrevTrack()" title="Track Sebelumnya (P)">⏮</button>
-    <button class="btn btn-sm btn-secondary" id="playPauseBtn" onclick="togglePlayPause()" title="Play / Pause (Spasi)">⏯</button>
+    <button class="btn btn-sm btn-primary" id="playPauseBtn" onclick="togglePlayPause()" title="Play / Pause (Spasi)">▶</button>
     <button class="btn btn-sm btn-secondary" onclick="playNextTrack()" title="Track Berikutnya (N)">⏭</button>
   </div>
 
-  <div style="display: flex; flex-direction: column; flex: 2; max-width: 520px; gap: 4px;">
-    <audio id="globalPlayer" controls autoplay preload="auto" style="width: 100%;"></audio>
-    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); padding: 0 4px;">
+  <div class="player-dock-center">
+    <audio id="globalPlayer" preload="auto" style="display: none;"></audio>
+    <div class="seekbar-container">
+      <span class="time-label" id="currentTimeLabel">0:00</span>
+      <div class="seekbar-track" id="seekbarTrack" onclick="handleSeekbarClick(event)">
+        <div class="seekbar-buffer" id="seekbarBuffer"></div>
+        <div class="seekbar-progress" id="seekbarProgress"></div>
+        <div class="seekbar-thumb" id="seekbarThumb"></div>
+      </div>
+      <span class="time-label" id="durationLabel">0:00</span>
+    </div>
+    <div style="display: flex; justify-content: space-between; align-items: center; font-size: 0.72rem; color: var(--text-muted); padding: 0 4px;">
       <span id="bufferStatus">Buffer: 0%</span>
-      <span id="formatBadge" style="color: var(--accent); font-weight: 600;">LOSSLESS PASSTHROUGH</span>
+      <div class="vol-container">
+        <span id="volIcon" style="cursor: pointer;" onclick="toggleMute()" title="Mute/Unmute (M)">🔊</span>
+        <input type="range" class="vol-slider" id="volSlider" min="0" max="1" step="0.01" value="1" oninput="handleVolumeChange(this.value)">
+      </div>
+      <span id="formatBadge" style="color: var(--accent); font-weight: 600;">BIT-PERFECT FLAC</span>
     </div>
   </div>
 </div>
@@ -965,12 +1049,77 @@
     }
   }
 
+  function formatTime(seconds) {
+    if (isNaN(seconds) || seconds < 0) return "0:00";
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    return `${m}:${s < 10 ? '0' : ''}${s}`;
+  }
+
+  function handleSeekbarClick(e) {
+    if (!globalPlayer.duration || isNaN(globalPlayer.duration)) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pos = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    globalPlayer.currentTime = pos * globalPlayer.duration;
+  }
+
+  function handleVolumeChange(val) {
+    globalPlayer.volume = parseFloat(val);
+    updateVolumeIcon(globalPlayer.volume);
+  }
+
+  function toggleMute() {
+    globalPlayer.muted = !globalPlayer.muted;
+    const volSlider = document.getElementById("volSlider");
+    if (globalPlayer.muted) {
+      document.getElementById("volIcon").textContent = "🔇";
+      if (volSlider) volSlider.value = 0;
+    } else {
+      updateVolumeIcon(globalPlayer.volume);
+      if (volSlider) volSlider.value = globalPlayer.volume;
+    }
+  }
+
+  function updateVolumeIcon(vol) {
+    const icon = document.getElementById("volIcon");
+    if (!icon) return;
+    if (vol === 0 || globalPlayer.muted) {
+      icon.textContent = "🔇";
+    } else if (vol < 0.5) {
+      icon.textContent = "🔉";
+    } else {
+      icon.textContent = "🔊";
+    }
+  }
+
+  globalPlayer.addEventListener("timeupdate", () => {
+    if (globalPlayer.duration && !isNaN(globalPlayer.duration)) {
+      const cur = globalPlayer.currentTime;
+      const dur = globalPlayer.duration;
+      const pct = (cur / dur) * 100;
+      
+      const prog = document.getElementById("seekbarProgress");
+      const thumb = document.getElementById("seekbarThumb");
+      const curLabel = document.getElementById("currentTimeLabel");
+      const durLabel = document.getElementById("durationLabel");
+
+      if (prog) prog.style.width = `${pct}%`;
+      if (thumb) thumb.style.left = `${pct}%`;
+      if (curLabel) curLabel.textContent = formatTime(cur);
+      if (durLabel) durLabel.textContent = formatTime(dur);
+    }
+  });
+
   globalPlayer.addEventListener("play", () => {
+    const playPauseBtn = document.getElementById("playPauseBtn");
+    if (playPauseBtn) playPauseBtn.textContent = "⏸";
     const curTrack = playlist[currentTrackIdx];
     updatePlayStateVisuals(true, curTrack ? curTrack.url : null);
   });
 
   globalPlayer.addEventListener("pause", () => {
+    const playPauseBtn = document.getElementById("playPauseBtn");
+    if (playPauseBtn) playPauseBtn.textContent = "▶";
     updatePlayStateVisuals(false);
   });
 
@@ -980,6 +1129,9 @@
       const percent = Math.min(100, Math.round((bufferedEnd / globalPlayer.duration) * 100));
       const buffElem = document.getElementById("bufferStatus");
       if (buffElem) buffElem.textContent = `Buffer: ${percent}%`;
+
+      const buffBar = document.getElementById("seekbarBuffer");
+      if (buffBar) buffBar.style.width = `${percent}%`;
     }
   });
 
@@ -1065,12 +1217,18 @@
       } else if (e.code === "ArrowUp") {
         e.preventDefault();
         globalPlayer.volume = Math.min(1, Math.round((globalPlayer.volume + 0.05) * 100) / 100);
+        updateVolumeIcon(globalPlayer.volume);
+        const vs = document.getElementById("volSlider");
+        if (vs) vs.value = globalPlayer.volume;
       } else if (e.code === "ArrowDown") {
         e.preventDefault();
         globalPlayer.volume = Math.max(0, Math.round((globalPlayer.volume - 0.05) * 100) / 100);
+        updateVolumeIcon(globalPlayer.volume);
+        const vs = document.getElementById("volSlider");
+        if (vs) vs.value = globalPlayer.volume;
       } else if (e.key === "m" || e.key === "M") {
         e.preventDefault();
-        globalPlayer.muted = !globalPlayer.muted;
+        toggleMute();
       }
     });
   }
