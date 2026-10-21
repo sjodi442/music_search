@@ -192,9 +192,106 @@
       display: flex;
       flex-direction: column;
       gap: 10px;
+      content-visibility: auto;
+      contain-intrinsic-size: 0 120px;
+      transition: border-color 0.15s, transform 0.15s;
     }
     .item-card:hover {
       border-color: #475569;
+    }
+    .item-card.hidden {
+      display: none !important;
+    }
+    .btn:active, .chip:active, .tab-btn:active {
+      transform: scale(0.97);
+    }
+    /* Wave Equalizer Animation */
+    .equalizer {
+      display: inline-flex;
+      align-items: flex-end;
+      gap: 2px;
+      height: 14px;
+      margin-right: 8px;
+    }
+    .equalizer-bar {
+      width: 3px;
+      background: var(--primary);
+      border-radius: 2px;
+      animation: eqBounce 0.8s ease-in-out infinite alternate;
+    }
+    .equalizer-bar:nth-child(1) { height: 40%; animation-delay: 0.1s; }
+    .equalizer-bar:nth-child(2) { height: 100%; animation-delay: 0.3s; }
+    .equalizer-bar:nth-child(3) { height: 60%; animation-delay: 0.2s; }
+    @keyframes eqBounce {
+      0% { transform: scaleY(0.3); }
+      100% { transform: scaleY(1); }
+    }
+    /* Filter Pills */
+    .filter-pills {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+    .pill-btn {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      border-radius: 9999px;
+      padding: 4px 12px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.15s;
+    }
+    .pill-btn:hover {
+      border-color: var(--primary);
+      color: var(--text);
+    }
+    .pill-btn.active {
+      background: var(--primary);
+      color: #0b1120;
+      border-color: var(--primary);
+      font-weight: 600;
+    }
+    /* Modal Shortcut */
+    .modal-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    .modal-box {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      max-width: 440px;
+      width: 90%;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+    }
+    .shortcut-table {
+      width: 100%;
+      margin-top: 12px;
+      border-collapse: collapse;
+      font-size: 0.88rem;
+    }
+    .shortcut-table td {
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .shortcut-table kbd {
+      background: #0b1120;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-family: monospace;
+      color: var(--primary);
+      font-size: 0.8rem;
     }
     .item-header {
       display: flex;
@@ -287,15 +384,17 @@
       bottom: 0;
       left: 0;
       right: 0;
-      background: var(--player-bg);
-      border-top: 1px solid var(--border);
+      background: rgba(9, 13, 22, 0.88);
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      border-top: 1px solid rgba(51, 65, 85, 0.8);
       padding: 10px 18px;
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
       z-index: 100;
-      box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.5);
+      box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.6);
     }
     .audio-dock-info {
       flex: 1.2;
@@ -395,10 +494,21 @@
   </section>
 
   <!-- Navigation Tabs -->
-  <div class="tabs-bar">
-    <button class="tab-btn active" id="tabSearchResults" onclick="switchTab('results')">Hasil Pencarian</button>
-    <button class="tab-btn" id="tabFavorites" onclick="switchTab('favorites')">⭐ Lagu Tersimpan (<span id="favCount">0</span>)</button>
-    <button class="tab-btn" id="tabQueue" onclick="switchTab('queue')">📋 Playlist Antrean (<span id="queueCount">0</span>)</button>
+  <div class="tabs-bar" style="justify-content: space-between; align-items: center;">
+    <div style="display: flex; gap: 8px;">
+      <button class="tab-btn active" id="tabSearchResults" onclick="switchTab('results')">Hasil Pencarian</button>
+      <button class="tab-btn" id="tabFavorites" onclick="switchTab('favorites')">⭐ Lagu Tersimpan (<span id="favCount">0</span>)</button>
+      <button class="tab-btn" id="tabQueue" onclick="switchTab('queue')">📋 Playlist Antrean (<span id="queueCount">0</span>)</button>
+    </div>
+    <button class="btn btn-sm btn-outline" onclick="toggleShortcutModal(true)" title="Pintasan Keyboard (?)">⌨️ Pintasan (?)</button>
+  </div>
+
+  <!-- Client-side Quick Filter Pills -->
+  <div class="filter-pills" id="quickPills" style="display: none;">
+    <button class="pill-btn active" onclick="applyQuickFilter('all', this)">Semua (<span id="countAll">0</span>)</button>
+    <button class="pill-btn" onclick="applyQuickFilter('direct', this)">Direct Hi-Res FLAC (<span id="countDirect">0</span>)</button>
+    <button class="pill-btn" onclick="applyQuickFilter('archive', this)">Archive.org (<span id="countArchive">0</span>)</button>
+    <button class="pill-btn" onclick="applyQuickFilter('torrent', this)">Torrent / Magnet (<span id="countTorrent">0</span>)</button>
   </div>
 
   <div id="statusAlert" style="margin-bottom: 16px; font-size: 0.9rem; color: var(--text-muted);"></div>
@@ -417,17 +527,50 @@
 <!-- Audio Dock Player -->
 <div class="audio-dock" id="audioDock" style="display: none;">
   <div class="audio-dock-info">
-    <div class="now-playing-title" id="playerTitle">Judul Lagu</div>
+    <div style="display: flex; align-items: center;">
+      <div id="dockEqualizer" class="equalizer" style="display: none;">
+        <div class="equalizer-bar"></div>
+        <div class="equalizer-bar"></div>
+        <div class="equalizer-bar"></div>
+      </div>
+      <div class="now-playing-title" id="playerTitle">Judul Lagu</div>
+    </div>
     <div class="now-playing-sub" id="playerSub">Sumber Audio</div>
   </div>
 
   <div class="player-controls">
-    <button class="btn btn-sm btn-secondary" onclick="playPrevTrack()" title="Track Sebelumnya (Kiri)">⏮</button>
+    <button class="btn btn-sm btn-secondary" onclick="playPrevTrack()" title="Track Sebelumnya (P)">⏮</button>
     <button class="btn btn-sm btn-secondary" id="playPauseBtn" onclick="togglePlayPause()" title="Play / Pause (Spasi)">⏯</button>
-    <button class="btn btn-sm btn-secondary" onclick="playNextTrack()" title="Track Berikutnya (Kanan)">⏭</button>
+    <button class="btn btn-sm btn-secondary" onclick="playNextTrack()" title="Track Berikutnya (N)">⏭</button>
   </div>
 
-  <audio id="globalPlayer" controls autoplay preload="auto"></audio>
+  <div style="display: flex; flex-direction: column; flex: 2; max-width: 520px; gap: 4px;">
+    <audio id="globalPlayer" controls autoplay preload="auto" style="width: 100%;"></audio>
+    <div style="display: flex; justify-content: space-between; font-size: 0.72rem; color: var(--text-muted); padding: 0 4px;">
+      <span id="bufferStatus">Buffer: 0%</span>
+      <span id="formatBadge" style="color: var(--accent); font-weight: 600;">LOSSLESS PASSTHROUGH</span>
+    </div>
+  </div>
+</div>
+
+<!-- Modal Pintasan Keyboard -->
+<div class="modal-backdrop" id="shortcutModal" style="display: none;" onclick="if(event.target === this) toggleShortcutModal(false)">
+  <div class="modal-box">
+    <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
+      <h3 style="font-size: 1.1rem; color: var(--primary);">⌨️ Pintasan Keyboard</h3>
+      <button class="btn btn-sm btn-secondary" onclick="toggleShortcutModal(false)">✕</button>
+    </div>
+    <table class="shortcut-table">
+      <tr><td><kbd>Spasi</kbd></td><td>Play / Pause audio</td></tr>
+      <tr><td><kbd>N</kbd></td><td>Track berikutnya (Next)</td></tr>
+      <tr><td><kbd>P</kbd></td><td>Track sebelumnya (Prev)</td></tr>
+      <tr><td><kbd>→</kbd> / <kbd>←</kbd></td><td>Maju / Mundur 5 detik</td></tr>
+      <tr><td><kbd>↑</kbd> / <kbd>↓</kbd></td><td>Volume naik / turun 5%</td></tr>
+      <tr><td><kbd>M</kbd></td><td>Mute / Unmute audio</td></tr>
+      <tr><td><kbd>?</kbd></td><td>Tampilkan / tutup dialog pintasan ini</td></tr>
+      <tr><td><kbd>/</kbd></td><td>Fokus ke kotak pencarian</td></tr>
+    </table>
+  </div>
 </div>
 
 <script>
@@ -540,6 +683,8 @@
     items.forEach((item, idx) => {
       const card = document.createElement("div");
       card.className = "item-card";
+      card.dataset.sourceType = item.type || "";
+      card.dataset.sourceName = (item.source || "").toLowerCase();
 
       const isDirect = item.type === "direct";
       const isTorrent = item.type === "torrent";
@@ -588,6 +733,46 @@
       `;
 
       resultsContainer.appendChild(card);
+    });
+
+    updateQuickFilterCounts(items);
+  }
+
+  // --- Quick Filter Pills Logic ---
+  function updateQuickFilterCounts(items) {
+    const quickPills = document.getElementById("quickPills");
+    if (!items || items.length === 0) {
+      quickPills.style.display = "none";
+      return;
+    }
+    quickPills.style.display = "flex";
+    document.getElementById("countAll").textContent = items.length;
+    document.getElementById("countDirect").textContent = items.filter(it => it.type === "direct" && !(it.source || "").toLowerCase().includes("archive")).length;
+    document.getElementById("countArchive").textContent = items.filter(it => (it.source || "").toLowerCase().includes("archive")).length;
+    document.getElementById("countTorrent").textContent = items.filter(it => it.type === "torrent").length;
+  }
+
+  function applyQuickFilter(type, btnElem) {
+    document.querySelectorAll(".pill-btn").forEach(b => b.classList.remove("active"));
+    btnElem.classList.add("active");
+
+    const cards = resultsContainer.querySelectorAll(".item-card");
+    cards.forEach(card => {
+      const sType = card.dataset.sourceType;
+      const sName = card.dataset.sourceName;
+      let show = false;
+
+      if (type === "all") {
+        show = true;
+      } else if (type === "direct") {
+        show = (sType === "direct" && !sName.includes("archive"));
+      } else if (type === "archive") {
+        show = sName.includes("archive");
+      } else if (type === "torrent") {
+        show = (sType === "torrent");
+      }
+
+      card.classList.toggle("hidden", !show);
     });
   }
 
@@ -652,9 +837,17 @@
 
       const streamProxyUrl = `/api/stream?url=${encodeURIComponent(tr.url)}`;
       const isFav = isFavorited(tr.url);
+      const isThisTrackPlaying = playlist[currentTrackIdx] && playlist[currentTrackIdx].url === tr.url && !globalPlayer.paused;
 
       row.innerHTML = `
-        <div class="track-name">🎵 ${escapeHtml(tr.name)}</div>
+        <div class="track-name" style="display: flex; align-items: center;">
+          <div class="equalizer eq-${sanitizeId(tr.url)}" style="display: ${isThisTrackPlaying ? 'inline-flex' : 'none'};">
+            <div class="equalizer-bar"></div>
+            <div class="equalizer-bar"></div>
+            <div class="equalizer-bar"></div>
+          </div>
+          <span>🎵 ${escapeHtml(tr.name)}</span>
+        </div>
         <div class="track-btns">
           <button class="btn btn-sm btn-primary" onclick='playSingleTrack(${JSON.stringify(tr)}, ${JSON.stringify(albumTitle)}, ${JSON.stringify(source)})'>
             ▶ Putar
@@ -730,11 +923,24 @@
     playerTitle.textContent = track.title;
     playerSub.textContent = `${track.album || track.source} [${idx + 1}/${playlist.length}]`;
 
+    // Visual indicators
+    updatePlayStateVisuals(true, track.url);
+
     globalPlayer.src = track.streamUrl;
     globalPlayer.play().catch(e => console.warn("Autoplay block:", e));
 
     updateMediaSession(track);
     if (activeTab === "queue") renderQueue();
+  }
+
+  function updatePlayStateVisuals(isPlaying, activeUrl = null) {
+    const dockEq = document.getElementById("dockEqualizer");
+    if (dockEq) dockEq.style.display = isPlaying ? "inline-flex" : "none";
+
+    document.querySelectorAll(".equalizer:not(#dockEqualizer)").forEach(eq => eq.style.display = "none");
+    if (isPlaying && activeUrl) {
+      document.querySelectorAll(`.eq-${sanitizeId(activeUrl)}`).forEach(eq => eq.style.display = "inline-flex");
+    }
   }
 
   function playNextTrack() {
@@ -758,6 +964,24 @@
       globalPlayer.pause();
     }
   }
+
+  globalPlayer.addEventListener("play", () => {
+    const curTrack = playlist[currentTrackIdx];
+    updatePlayStateVisuals(true, curTrack ? curTrack.url : null);
+  });
+
+  globalPlayer.addEventListener("pause", () => {
+    updatePlayStateVisuals(false);
+  });
+
+  globalPlayer.addEventListener("progress", () => {
+    if (globalPlayer.duration > 0 && globalPlayer.buffered.length > 0) {
+      const bufferedEnd = globalPlayer.buffered.end(globalPlayer.buffered.length - 1);
+      const percent = Math.min(100, Math.round((bufferedEnd / globalPlayer.duration) * 100));
+      const buffElem = document.getElementById("bufferStatus");
+      if (buffElem) buffElem.textContent = `Buffer: ${percent}%`;
+    }
+  });
 
   globalPlayer.addEventListener("ended", () => {
     // Auto-advance ke lagu berikutnya
@@ -790,21 +1014,63 @@
     }
   }
 
-  // Keyboard Shortcuts
+  // Keyboard Shortcuts & Modal Toggle
+  function toggleShortcutModal(show) {
+    const m = document.getElementById("shortcutModal");
+    if (m) m.style.display = show ? "flex" : "none";
+  }
+
   function setupKeyShortcuts() {
     window.addEventListener("keydown", (e) => {
-      // Abaikan jika fokus di input text
-      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      // Abaikan jika fokus di input text atau modal terbuka
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") {
+        if (e.key === "Escape") e.target.blur();
+        return;
+      }
+
+      if (e.key === "?") {
+        e.preventDefault();
+        const m = document.getElementById("shortcutModal");
+        toggleShortcutModal(m.style.display === "none");
+        return;
+      }
+
+      if (e.key === "Escape") {
+        toggleShortcutModal(false);
+        return;
+      }
+
+      if (e.key === "/") {
+        e.preventDefault();
+        queryInput.focus();
+        queryInput.select();
+        return;
+      }
 
       if (e.code === "Space") {
         e.preventDefault();
         togglePlayPause();
-      } else if (e.code === "ArrowRight" && e.ctrlKey) {
+      } else if (e.key === "n" || e.key === "N") {
         e.preventDefault();
         playNextTrack();
-      } else if (e.code === "ArrowLeft" && e.ctrlKey) {
+      } else if (e.key === "p" || e.key === "P") {
         e.preventDefault();
         playPrevTrack();
+      } else if (e.code === "ArrowRight") {
+        e.preventDefault();
+        globalPlayer.currentTime = Math.min(globalPlayer.duration || 0, globalPlayer.currentTime + 5);
+      } else if (e.code === "ArrowLeft") {
+        e.preventDefault();
+        globalPlayer.currentTime = Math.max(0, globalPlayer.currentTime - 5);
+      } else if (e.code === "ArrowUp") {
+        e.preventDefault();
+        globalPlayer.volume = Math.min(1, Math.round((globalPlayer.volume + 0.05) * 100) / 100);
+      } else if (e.code === "ArrowDown") {
+        e.preventDefault();
+        globalPlayer.volume = Math.max(0, Math.round((globalPlayer.volume - 0.05) * 100) / 100);
+      } else if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        globalPlayer.muted = !globalPlayer.muted;
       }
     });
   }
